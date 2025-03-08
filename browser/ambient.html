@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="A synchronized ambient video streaming platform." />
+    <meta
+      name="keywords"
+      content="ambient tv, synchronized video, shared viewing, video streaming" />
+    <title>Ambient Channel</title>
+    <style>
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      body {
+        font-family: 'Helvetica Neue', Arial, sans-serif;
+        background-color: #000000;
+        overflow: hidden;
+        width: 100vw;
+        height: 100vh;
+      }
+
+      .video-container {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        background-color: #000;
+        overflow: hidden;
+        padding: 0 2vw; /* Add small horizontal padding */
+      }
+
+      video {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        border-radius: 4px; /* Subtle rounded corners */
+      }
+
+      /* Subtle video frame */
+      .video-frame {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        border: 1px solid rgba(255, 255, 255, 0.05);
+        pointer-events: none;
+        z-index: 5;
+      }
+
+      /* Minimal title that fades in/out */
+      .video-info {
+        position: fixed;
+        bottom: 30px;
+        left: 30px;
+        padding: 8px;
+        font-size: 14px;
+        z-index: 10;
+        opacity: 0;
+        transition: opacity 1.5s ease;
+        background-color: transparent;
+      }
+
+      .video-info.visible {
+        opacity: 1;
+      }
+
+      /* Video title styling */
+      #video-title {
+        color: rgba(255, 255, 255, 0.7);
+        font-weight: 300;
+        font-size: 16px;
+        letter-spacing: 1px;
+        text-shadow: 0px 0px 4px rgba(0, 0, 0, 0.8);
+        user-select: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="video-container">
+      <video id="player" autoplay muted>
+        <source src="" type="video/mp4" />
+        Your browser does not support the video tag.
+      </video>
+
+      <!-- Subtle frame around video -->
+      <div class="video-frame"></div>
+
+      <!-- Minimal video info -->
+      <div class="video-info" id="video-info">
+        <span id="video-title">Loading...</span>
+      </div>
+    </div>
+
+    <script>
+      // Global variables
+      let currentVideoIndex = 0
+      let videoStartTime = 0
+      let videoDuration = 0
+
+      // Elements
+      const player = document.getElementById('player')
+      const videoTitle = document.getElementById('video-title')
+      const videoInfo = document.getElementById('video-info')
+
+      // Request fullscreen when possible
+      document.addEventListener(
+        'click',
+        () => {
+          if (document.documentElement.requestFullscreen) {
+            document.documentElement.requestFullscreen().catch((e) => {
+              console.log('Fullscreen request failed:', e)
+            })
+          }
+        },
+        { once: true }
+      )
+
+      // Disable seeking and controls
+      player.addEventListener('loadedmetadata', () => {
+        player.controls = false
+        player.disablePictureInPicture = true
+        player.controlsList = 'nodownload nofullscreen noremoteplayback'
+      })
+
+      // Handle title visibility
+      function showTitle() {
+        videoInfo.classList.add('visible')
+        setTimeout(() => {
+          videoInfo.classList.remove('visible')
+        }, 4000)
+      }
+
+      // Set up SSE connection
+      const evtSource = new EventSource('/video-updates')
+
+      evtSource.onmessage = (event) => {
+        const data = JSON.parse(event.data)
+        console.log('Received video update:', data)
+
+        // Update video source
+        player.src = data.video_url
+        player.load()
+        player.play().catch((e) => {
+          console.error('Autoplay failed:', e)
+          player.muted = true
+          player.play()
+        })
+
+        // Update video info - clean up filename for display
+        let filename = data.video_url.split('/').pop()
+        // Remove file extension
+        filename = filename.replace(/\.[^/.]+$/, '')
+        // Replace underscores and dashes with spaces
+        filename = filename.replace(/[_-]/g, ' ')
+        // Capitalize first letter of each word
+        filename = filename.replace(/\b\w/g, (l) => l.toUpperCase())
+
+        videoTitle.textContent = filename
+
+        // Store current video data
+        currentVideoIndex = data.index
+        videoStartTime = data.start_time
+        videoDuration = data.duration
+
+        // Show title briefly when video changes
+        showTitle()
+      }
+
+      evtSource.onerror = (error) => {
+        console.error('SSE Error:', error)
+      }
+
+      // Handle player click for browsers that block autoplay
+      player.addEventListener('click', () => {
+        player.play().catch((e) => console.error('Play failed:', e))
+
+        // Show title briefly on click
+        showTitle()
+      })
+
+      // Prevent seeking
+      player.addEventListener('seeked', () => {
+        // If user somehow manages to seek, reset to server time
+        const currentServerTime = Math.floor(Date.now() / 1000) - videoStartTime
+        if (Math.abs(player.currentTime - currentServerTime) > 1) {
+          player.currentTime = currentServerTime
+        }
+      })
+    </script>
+  </body>
+</html>
